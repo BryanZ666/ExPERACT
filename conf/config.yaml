@@ -1,0 +1,72 @@
+defaults:
+  # Set default options
+  - _self_
+  - model: hex
+  - env: RLBench
+
+cuda_deterministic: False
+
+wandb: True
+
+seed: 0
+resume: False
+load_options: False
+freeze_loaded_options: False
+checkpoint_path: 
+num_demo: 10
+replay_path: ./rp/
+
+eval: False
+eval_ep: 1
+
+render: True
+render_path: ./viz/eval_${env.name}/
+
+batch_size: 1
+max_iters: 50
+warmup_steps: 1000 # 2500,5000
+total_steps: 60000
+
+trainer:
+  state_il: False
+  num_eval_episodes: 10
+  eval_every: 2000
+
+# options config
+option_dim: 128
+codebook_dim: 16
+
+parallel: True
+savedir: 'checkpoints'
+savepath: ## to be filled in code
+
+method: 'hex'
+use_iq: False ## use IQ-Learn objective instead of BC
+
+# learning_rate: 5e-4
+# lm_learning_rate: 5e-4
+# weight_decay: 1e-6
+# os_learning_rate: 5e-4
+
+learning_rate: 1e-3
+lm_learning_rate: 1e-3
+weight_decay: 1e-6
+os_learning_rate: 1e-3
+
+model:   
+  # Model specific configuration
+
+env:   
+  # Env specific configuration
+    skip_words: []
+
+option_selector:    
+  # Option configuration
+  option_transformer:
+
+# Extra args
+log_interval: 1  # Log every this many iterations
+save_interval: 3 # Save networks every this many iterations
+hydra_base_dir: ""
+exp_name: 
+project_name: ${env.name}

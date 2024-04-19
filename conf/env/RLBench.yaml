@@ -1,0 +1,56 @@
+# @package _global_
+
+env:
+  name: rlbench
+  # task: [open_drawer,close_jar,insert_onto_square_peg,light_bulb_in,meat_off_grill,place_cups,push_buttons,put_groceries_in_cupboard,put_item_in_drawer,put_money_in_safe,reach_and_drag,stack_blocks,stack_cups,turn_tap,place_wine_at_rack_location,slide_block_to_color_target,sweep_to_dustpan_of_size]
+  # task: [open_drawer,close_jar,push_buttons,reach_and_drag,stack_blocks]
+  task: [open_drawer,meat_off_grill,slide_block_to_color_target,turn_tap,close_jar,stack_blocks,light_bulb_in,push_buttons]
+  # task: [open_drawer]
+  # task: [open_drawer,meat_off_grill]
+  state_dim: (128, 128, 3)
+  action_dim: 8
+  # num_cams: 1
+  # cameras: ['front']
+  num_cams: 4
+  cameras: ['front', 'left_shoulder', 'right_shoulder', 'wrist']
+  camera_resolution: [128, 128]
+  scene_bounds: [-0.3, -0.5, 0.6, 0.7, 0.5, 1.6]
+  lang_feat_dim: 1024
+  lang_emb_dim: 512
+  lang_max_seq_len: 77
+  discrete: False
+  eval_offline: False
+  eval_episode_factor: 2
+  eval_env: 
+
+train_dataset:
+  expert_location: '/sailhome/divgarg/implicit-irl/experts/Hopper-v2_25.pkl'
+  num_trajectories: 10
+  normalize_states: False
+  no_lang: False
+  seed: ${seed}
+
+val_dataset:
+  expert_location: 
+  num_trajectories: ${trainer.num_eval_episodes}
+  normalize_states: False
+  seed: ${seed}
+
+model:
+  train_lm: False
+
+option_selector:
+  commitment_weight: 20
+  option_transformer:
+    n_layer: 2
+    n_head: 4
+
+dt:
+    hidden_size: 128
+    n_layer: 2
+    n_head: 4
+    activation_function: 'relu'
+    n_positions: 2048
+    dropout: 0.1
+    no_states: false
+    no_actions: false
