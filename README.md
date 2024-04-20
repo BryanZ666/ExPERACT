@@ -1,8 +1,6 @@
 # ExPERACT
 Explainable PERACT for robotic manipulation
 
-<img src="viz/episode_close_jar_eval_7.gif" alt="" width="200" height="200" loop=infinite>
-
 ![](/viz/episode_close_jar_eval_7.gif)
 ![](/viz/episode_light_bulb_in_eval_4.gif)
 ![](/viz/episode_meat_off_grill_eval_1.gif)
