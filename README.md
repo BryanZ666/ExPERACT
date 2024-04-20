@@ -1,6 +1,16 @@
 # ExPERACT
 Explainable PERACT for robotic manipulation
 
+![Alt Text](/viz/episode_close_jar_eval_7.gif)
+![Alt Text](/viz/episode_light_bulb_in_eval_4.gif)
+![Alt Text](/viz\episode_meat_off_grill_eval_1.gif)
+![Alt Text](/viz\episode_open_drawer_eval_1.gif)
+
+![Alt Text](/viz\episode_push_buttons_eval_13.gif)
+![Alt Text](/viz\episode_slide_block_to_color_target_eval_8.gif)
+![Alt Text](/viz\episode_stack_blocks_eval_24.gif)
+![Alt Text](/viz\episode_turn_tap_eval_25.gif)
+
 The demonstration data is downloaded from Project PreAct. Train (100 episodes), validation (25 episodes), and test (25 episodes)
 
 --  https://drive.google.com/drive/folders/0B2LlLwoO3nfZfkFqMEhXWkxBdjJNNndGYl9uUDQwS1pfNkNHSzFDNGwzd1NnTmlpZXR1bVE?resourcekey=0-jRw5RaXEYRLe2W6aNrNFEQ
