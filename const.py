@@ -1,6 +1,5 @@
-# TASK = 'open_drawer'
-# DATA_FOLDER ='/data/brzheng/Project/imitation-learning/RLBench/dataset/'
-DATA_FOLDER ='/data/brzheng/download/'
+
+DATA_FOLDER ='edit/this/directory/to/downloaded/dataset/'
 EPISODES_FOLDER = 'train/'
 EVAL_FOLDER = 'test/'
 CAMERAS = ['front', 'left_shoulder', 'right_shoulder', 'wrist']
