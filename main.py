@@ -92,17 +92,6 @@ def train(cfg : DictConfig):
         arm_action_mode=EndEffectorPoseViaPlanning(), gripper_action_mode=Discrete()),
         obs_config=obs_config,dataset_root=data_path,headless=True)
   env.launch()
-  # all_trajs = load_traj(data_path=data_path, num_demos=args.num_demo, task=TASK, 
-  #   cameras=args.env.cameras, img_size=IMAGE_SIZE,episode_length=25)
-  # all_trajs = load_multiple_task_demo(data_path=data_path, num_demos=args.num_demo, task_list=args.env.task, 
-  #   cameras=args.env.cameras, img_size=IMAGE_SIZE,episode_length=25)
-
-  # ds = ExpDataset(all_trajs,subsample_fre=1)
-
-  # using dataloader_disk_store.py
-  # num_replay,max_len,max_num_kf = load_multiple_task_demo(data_path=data_path, num_demos=args.num_demo, task_list=args.env.task, 
-  #   cameras=args.env.cameras, img_size=IMAGE_SIZE,episode_length=25,replay_path=args.replay_path)
-  # ds = ExpDataset(num_replay=num_replay,max_len=max_len,max_num_kf=max_num_kf,replay_path=args.replay_path,device=device)
 
   # using dataloader.py
   num_replay,max_len,max_num_kf,ori_weight,task_weight = load_multiple_task_demo(data_path=data_path, num_demos=args.num_demo, task_list=args.env.task, 
@@ -118,64 +107,8 @@ def train(cfg : DictConfig):
   if not args.env.eval_offline:
     val_loader = None
   else:
-    #need update
     val_dataset = ExpDataset(all_trajs,subsample_fre=1)
     val_loader = DataLoader(dataset=val_dataset, batch_size=batch_size,shuffle=True, pin_memory=True, drop_last=True)
-
-  
-
-  # encoder_args = {'hidden_size': args.dt.hidden_size,'ch': 3}
-  
-  # args.option_selector.option_transformer.max_length = int(ds.max_length)
-  # args.option_selector.option_transformer.max_ep_len = args.env.eval_episode_factor * int(ds.max_length)
-  # option_selector_args = dict(args.option_selector)
-
-  # #change the str input into tuple if it is tuple
-  # state_dim = args.env.state_dim
-  # if isinstance(state_dim, str):
-  #   state_dim = ast.literal_eval(state_dim)
-
-  # option_selector_args['state_dim'] = state_dim
-  # option_selector_args['option_dim'] = args.option_dim
-  # option_selector_args['codebook_dim'] = args.codebook_dim
-  # option_selector_args['num_cams'] = args.env.num_cams
-
-
-  # decision_transformer_args = {'state_dim': state_dim,
-  #                             'action_dim': args.env.action_dim,
-  #                             'option_dim': args.option_dim,
-  #                             'discrete': args.env.discrete,
-  #                             'hidden_size': args.dt.hidden_size,
-  #                             'use_language': args.method == 'vanilla',
-  #                             'use_options': args.method != 'vanilla',
-  #                             'option_il': args.dt.option_il,
-  #                             'predict_q': args.use_iq,
-  #                             'max_ep_len': args.env.eval_episode_factor*ds.max_length,
-  #                             'n_layer': args.dt.n_layer,
-  #                             'n_head': args.dt.n_head,
-  #                             'activation_function': args.dt.activation_function,
-  #                             'n_positions': args.dt.n_positions,
-  #                             'n_ctx': args.dt.n_positions,
-  #                             'resid_pdrop': args.dt.dropout,
-  #                             'attn_pdrop': args.dt.dropout,
-  #                             'no_states': args.dt.no_states,
-  #                             'no_actions': args.dt.no_actions,
-  #                             }
-  # model_args = dict(args.model)
-
-  num_layers = 4
-  latent_img_side_size = int(IMAGE_SIZE/(2**num_layers))
-
-  # model = TransformerUNet(
-  #     hidden_size=16, num_layers=num_layers,
-  #     num_tasks=None, max_steps=max(all_trajs["lengths"]),
-  #     gripper_channel=False, unet=True,
-  #     use_instr_embed='all', instr_embed_size=128,
-  #     num_trans_layers=1, nhead=8,
-  #     txt_attn_type='cross', num_cams=4,
-  #     latent_im_size=(latent_img_side_size, latent_img_side_size),
-  #     device=device
-  # )
 
   model = Hex(device=device,args=args,max_length=512)
 
@@ -206,45 +139,8 @@ def train(cfg : DictConfig):
   else:
     model = model.to(device)
 
-  # # Setting up the optimizer
-  # params = [(k, v) for k, v in model.named_parameters() if v.requires_grad]
-  # # setting different learning rates for the LM part, OS part and other parts
-  # os_params = {'params': [v for k, v in params if k.startswith(
-  #   'option_selector.')], 'lr': args.os_learning_rate}
-  # other_params = {'params': [v for k, v in params if not k.startswith(
-  #   'lm.') and not k.startswith('option_selector.')]}
-  # # for the option selector need separate lr?
-  # optimizer = torch.optim.AdamW(
-  #   [other_params, os_params],
-  #   lr=args.learning_rate, weight_decay=args.weight_decay,)
-
-  # def adjust_lr(steps):
-  #   if steps < args.warmup_steps:
-  #       return min((steps + 1) / args.warmup_steps, 1)
-  #   num_decays = (steps + 1) // args.decay_steps
-  #   return args.lr_decay ** (num_decays)
-
-  # # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, adjust_lr)  
-  # scheduler = torch.optim.lr_scheduler.LinearLR(
-  #   optimizer,start_factor=args.learning_rate,end_factor=0.8*args.learning_rate,total_iters=5000)
-  
-
   trainer_args = dict(args.trainer)
 
-  # trainer = Trainer(
-  #     model=model,
-  #     optimizer=optimizer,
-  #     train_loader=dl,
-  #     env=env,
-  #     val_loader=val_loader,
-  #     scheduler=scheduler,
-  #     eval_episode_factor=2,
-  #     skip_words=args.env.skip_words,
-  #     device=device,
-  #     render_path=args.render_path,
-  #     cameras = args.env.cameras,
-  #     **trainer_args
-  # )
   trainer = Trainer(
       model=model,
       train_loader=dl,
@@ -274,31 +170,6 @@ def train(cfg : DictConfig):
       filepath = f'{args.savepath}/model_{iter_num}.ckpt'
       trainer.save(iter_num, filepath, args)
 
-      # eval_model = Hex(device=device,args=args,max_length=512)
-      # if args.parallel:
-      #   eval_model = torch.nn.DataParallel(eval_model).to(device)
-      # else:
-      #   eval_model = eval_model.to(device)
-
-      # eval_trainer = Trainer(
-      #     model=eval_model,
-      #     train_loader=dl,
-      #     env=env,
-      #     val_loader=val_loader,
-      #     eval_episode_factor=2,
-      #     skip_words=args.env.skip_words,
-      #     device=device,
-      #     render_path=args.render_path,
-      #     cameras = args.env.cameras,
-      #     **trainer_args
-      # )
-      # eval_trainer.load(filepath)
-      # eval_trainer.model.eval()
-
-      # action_target = torch.zeros((1,args.env.action_dim)).detach()
-
-      # eval_outputs = eval_trainer.evaluate(steps, render=args.render,render_path=args.render_path,action_target=action_target)
-      # del eval_trainer,eval_model
   env.shutdown()
   ds.shutdown()
 
@@ -331,13 +202,6 @@ def evaluation(cfg : DictConfig):
         arm_action_mode=EndEffectorPoseViaPlanning(), gripper_action_mode=Discrete()),
         obs_config=obs_config,dataset_root=data_path,headless=True)
   env.launch()
-
-
-
-  # using dataloader_disk_store.py
-  # num_replay,max_len,max_num_kf = load_multiple_task_demo(data_path=data_path, num_demos=1, task_list=args.env.task, 
-  #   cameras=args.env.cameras, img_size=IMAGE_SIZE,episode_length=25,replay_path=args.replay_path)
-  # eval_ds = ExpDataset(num_replay=num_replay,max_len=max_len,max_num_kf=max_num_kf,replay_path=args.replay_path,device=device)
 
   # using dataloader.py
   num_replay,max_len,max_num_kf,ori_weight,task_weight = load_multiple_task_demo(data_path=data_path, num_demos=1, task_list=args.env.task, 

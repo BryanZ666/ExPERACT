@@ -53,18 +53,6 @@ class OptionTransformer(nn.Module):
         self.max_length = max_length
         self.output_attentions = kwargs["output_attentions"]
 
-        #need update
-        # if isinstance(state_dim, tuple):
-        #     if state_dim[-1] == 3:
-        #         # RLBench
-        #         self.embed_state = Encoder(hidden_size=hidden_size, ch=3)
-        #     else:
-        #         # LORL Franka
-        #         self.embed_state = Encoder(hidden_size=hidden_size, ch=12)
-
-        # else:
-        #     self.embed_state = nn.Linear(self.state_dim, hidden_size)
-
         self.embed_lang = nn.Linear(lang_dim, hidden_size)
 
         # note: the only difference between this GPT2Model and the default Huggingface version
@@ -85,9 +73,6 @@ class OptionTransformer(nn.Module):
             raise ValueError('Should not have attention_mask NONE')
             # attention mask for GPT: 1 if can be attended to, 0 if not
             attention_mask = torch.ones((batch_size, seq_length))
-
-        # state_embeddings = self.embed_state(states)
-
 
         lang_embeddings = self.embed_lang(word_embeddings)
         time_embeddings = self.embed_timestep(timesteps)
@@ -232,9 +217,7 @@ class OptionSelector(nn.Module):
         #           index shape B, T
         commitment_loss_weight = 1
         option_preds = self.option_dt(word_embeddings, state_embeddings, timesteps, attention_mask)[0]
-        # need update, intergrate keyframe
 
-        # option_preds = option_preds[:, :, :]
         option_preds = einops.rearrange(option_preds,'b t n c ->b t (n c)')
         option_preds = self.fuse_option(option_preds)
         options, indices, commitment_loss = self.Z(option_preds)
@@ -255,33 +238,11 @@ class OptionSelector(nn.Module):
         return options, indices, commitment_loss*commitment_loss_weight, entropies
 
     def get_option(self, word_embeddings, states, timesteps=None, **kwargs):
-        # if isinstance(self.state_dim, tuple):
-        #     if len(states.shape) != 6: #B,T,N,H,W,C
-        #       states = states.reshape(1, -1, *self.state_dim)
-        # else:
-        #     states = states.reshape(1, -1, self.state_dim)
+
 
         timesteps = timesteps.reshape(1, -1)
 
         attention_mask = torch.ones(1, states.shape[1]).to(device=states.device)
-
-        # max_length = self.option_dt.max_length
-        # if max_length is not None:
-        #     states = states[:, -max_length:]
-        #     timesteps = timesteps[:, -max_length:]
-        #
-        #     # pad all tokens to sequence length
-        #     attention_mask = pad(
-        #         torch.ones(1, states.shape[1]),
-        #         max_length).to(
-        #         dtype=torch.long, device=states.device).reshape(
-        #         1, -1)
-        #     states = pad(states, max_length).to(dtype=torch.float32)
-        #     timesteps = pad(timesteps, max_length).to(dtype=torch.long)
-        # else:
-        #     attention_mask = None
-        #     raise ValueError('Attention mask should not be none')
-
 
         options, option_indx, _, _ = self.forward(
             word_embeddings, states, timesteps=timesteps, attention_mask=attention_mask, **kwargs)
@@ -311,196 +272,6 @@ class TrajectoryModel(nn.Module):
         # these will come as tensors on the correct device
         return torch.zeros_like(actions[-1])
 
-
-# class DecisionTransformer(TrajectoryModel):
-
-#     """
-#     This model uses GPT to model (Lang, state_1, state_2, ...) or (state_1, option_1, ...)
-#     """
-
-#     def __init__(
-#             self,
-#             state_dim,
-#             action_dim,
-#             option_dim,
-#             lang_dim,
-#             discrete,
-#             hidden_size,
-#             use_language=False,
-#             use_options=True,
-#             option_il=False,
-#             predict_q=False,
-#             max_ep_len=4096,
-#             action_tanh=False,
-#             no_states=False,
-#             no_actions=False,
-#             ** kwargs):
-#         super().__init__(state_dim, action_dim)
-
-#         self.use_options = use_options
-#         self.use_language = use_language
-#         self.option_il = option_il
-#         self.predict_q = predict_q
-
-#         if use_language and use_options:
-#             raise ValueError("Cannot use language and options!")
-#         if not use_language and not use_options:
-#             raise ValueError("Have to use language or options!")
-#         self.option_dim = option_dim
-#         self.discrete = discrete
-
-#         self.hidden_size = hidden_size
-#         config = transformers.GPT2Config(
-#             vocab_size=1,  # doesn't matter -- we don't use the vocab
-#             n_embd=hidden_size,
-#             **kwargs
-#         )
-
-#         self.transformer = GPT2Model(config)
-
-#         #transform timestep to vector embedding
-#         self.embed_timestep = nn.Embedding(max_ep_len, hidden_size)
-
-#         self.embed_action = nn.Linear(self.act_dim, hidden_size)
-
-#         self.no_states = no_states
-#         self.no_actions = no_actions
-
-#         if use_options:
-#             self.embed_option = nn.Linear(self.option_dim, hidden_size)
-
-#         if use_language:
-#             self.embed_lang = nn.Linear(lang_dim, hidden_size)
-
-#         self.embed_ln = nn.LayerNorm(hidden_size)
-#         # note: we don't predict states or returns for the paper
-#         if isinstance(self.state_dim, int):
-#             self.predict_state = torch.nn.Linear(hidden_size, self.state_dim)
-#         self.predict_action = nn.Sequential(
-#             *([nn.Linear(hidden_size*2, self.act_dim)] + ([nn.Tanh()] if action_tanh and not discrete else []))
-#         )
-#         if use_options:
-#             self.predict_option = torch.nn.Linear(hidden_size, self.option_dim)
-#         if predict_q:
-#             self.predict_q = torch.nn.Linear(hidden_size, self.act_dim)
-
-#     def forward(self, state_embeddings, timesteps, options=None, word_embeddings=None, attention_mask=None):
-#         # option shape B T*N hidden
-#         # state shape B T N H W C
-#         # action shape B T act_dim
-#         # timesteps/attention_mask B T
-#         #batch_size, seq_length,num_cam,H,W,C = states.shape
-#         batch_size,seq_length,num_cam,_ = state_embeddings.shape
-
-#         if attention_mask is None:
-#             raise ValueError('Should not have attention_mask NONE')
-#             # attention mask for GPT: 1 if can be attended to, 0 if not
-#             attention_mask = torch.ones((batch_size, seq_length), dtype=torch.long)
-
-#         if self.use_options:
-#             assert options is not None
-#             option_embeddings = self.embed_option(options)
-#             time_embeddings = self.embed_timestep(timesteps.repeat([1,num_cam]))
-#             if option_embeddings.shape[1]<time_embeddings.shape[1] and time_embeddings.shape[1]%option_embeddings.shape[1]==0:
-#               factor = time_embeddings.shape[1]/option_embeddings.shape[1]
-#               option_embeddings = self.embed_option(options.repeat([1,int(factor),1]))
-
-#             # time embeddings are treated similar to positional embeddings
-#             option_embeddings = option_embeddings + time_embeddings
-
-#             if self.no_states:
-#                 # IMP: MAKE SURE THIS IS NOT SET ON BY DEFAULT
-#                 # state_embeddings = self.embed_state(torch.zeros_like(states))
-#                 state_embeddings = torch.zeros_like(state_embeddings)
-#             else:
-#                 # state_embeddings = self.embed_state(states)
-#                 state_embeddings = einops.rearrange(state_embeddings,'b t n c -> b (t n) c')
-#                 state_embeddings = state_embeddings + time_embeddings
-#                 # state_embeddings = state_embeddings + einops.rearrange(time_embeddings, 'b t c -> b t 1 c') + \
-#                 #  einops.rearrange(cam_embeddings, 'n c -> 1 1 n c')
-
-#             # this makes the sequence look like (o1, s1, a1,o2, s2, a2, ...)
-#             # which works nice in an autoregressive sense since states predict actions
-#             # note that o1 and o2 need not be different
-#             # Bryan: it seems the code is equals stack on dim = 2?
-
-#             assert state_embeddings.shape[1]==option_embeddings.shape[1]
-
-#             stacked_inputs = torch.stack(
-#                 (option_embeddings, state_embeddings),
-#                 dim=1).permute(
-#                 0, 2, 1, 3).reshape(
-#                 batch_size, 2 * seq_length*num_cam, self.hidden_size)
-#             # LAYERNORM
-#             stacked_inputs = self.embed_ln(stacked_inputs)
-
-#             # to make the attention mask fit the stacked inputs, have to stack it as well
-#             stacked_attention_mask = torch.stack(
-#                 (attention_mask.repeat([1,num_cam]), attention_mask.repeat([1,num_cam])), dim=1
-#             ).permute(0, 2, 1).reshape(batch_size, 2 * seq_length*num_cam)
-
-#             # we feed in the input embeddings (not word indices as in NLP) to the model
-#             transformer_outputs = self.transformer(
-#                 inputs_embeds=stacked_inputs,
-#                 attention_mask=stacked_attention_mask,
-#             )
-#             x = transformer_outputs['last_hidden_state']
-
-#             # reshape x so that the second dimension corresponds to the original
-#             # options (0), states (1) or actions (2); i.e. x[:,0,t] is the token for s_t
-#             traj_out = x.reshape(batch_size, seq_length*num_cam, 2, self.hidden_size).permute(0, 2, 1, 3)
-#             # get predictions
-#             # predict next action given state and option
-#             # in fact, i think only the state info is used for prediction
-#             option_state = traj_out[:, :]
-#             option_state = einops.rearrange(option_state,'b os nt c -> b nt (os c)') # B T*N 2*hidden
-#             action_preds = self.predict_action(option_state) # B T*N act_dim
-
-#             action_preds = action_preds.reshape([batch_size,seq_length,num_cam,-1]) # B T N act_dim
-
-#             action_preds = torch.mean(action_preds,dim=2) # B T act_dim
-
-#             return action_preds
-#         else:
-#             return None
-
-
-#     def get_action(self, states, timesteps, options=None, word_embeddings=None, **kwargs):
-#         assert options is not None
-#         # if isinstance(self.state_dim, tuple):
-#         #     if len(states.shape) != 6:  #B,T,N,H,W,C
-#         #       states = states.reshape(1, -1, *self.state_dim)
-#         # else:
-#         #     states = states.reshape(1, -1, self.state_dim)
-#         options = options.reshape(1, -1, self.option_dim)
-#         timesteps = timesteps.reshape(1, -1)
-#         attention_mask = torch.ones(1, states.shape[1]).to(dtype=torch.long, device=states.device).reshape(1, -1)
-
-#         # if max_length is not None:
-#         #     states = states[:, -max_length:]
-#         #     options = options[:, -max_length:]
-#         #     actions = actions[:, -max_length:]
-#         #     timesteps = timesteps[:, -max_length:]
-
-#         #     # pad all tokens to sequence length
-#         #     # mask future observation
-#         #     attention_mask = pad(torch.ones(1, states.shape[1]), max_length)
-#         #     states = pad(states, max_length).to(dtype=torch.float32)
-#         #     options = pad(options, max_length).to(dtype=torch.float32)
-#         #     actions = pad(actions, max_length).to(dtype=torch.float32)
-#         #     timesteps = pad(timesteps, max_length).to(dtype=torch.long)
-#         # else:
-#         #     raise ValueError('Should not have max_length NONE')
-#         #     attention_mask = None
-#         print("state_embeddings shape: ",states.shape)
-#         print("options shape: ",options.shape)
-#         print("timesteps shape: ", timesteps.shape)
-#         print("attention_mask shape: ",attention_mask.shape)
-#         preds = self.forward(
-#             states, timesteps, options=options, attention_mask=attention_mask)
-
-
-#         return preds
 
 class ActionTransformer(TrajectoryModel):
 
@@ -629,25 +400,9 @@ class ActionTransformer(TrajectoryModel):
         # reshape x so that the second dimension corresponds to the original
         # options (0), states (1); i.e. x[:,0,t] is the token for s_t
         traj_out = x.reshape(batch_size, seq_length*num_cam, 2, self.hidden_size).permute(0, 2, 1, 3)
-        # get predictions
-        # predict next action given state and option
-        # in fact, i think only the state info is used for prediction
+
         option_state = traj_out[:, :]
-        # option_state = einops.rearrange(option_state,'b os tn c -> b tn (os c)') # B T*N 2*hidden
-        # rot_preds = self.predict_rot(option_state) # B T*N act_dim
 
-        # rot_preds = einops.rearrange(rot_preds,'b (t n) rot_dim -> b t n rot_dim',t=seq_length,n=num_cam)
-
-        # pcs_embed = einops.rearrange(self.pcs_encode(pcs),'b t n c -> b (t n) c')
-        # pcs_embed = torch.cat((pcs_embed,option_state),-1)
-
-        # pred_coord = self.predict_coord(pcs_embed)
-        # pred_coord = einops.rearrange(pred_coord,'b (t n) cd_dim -> b t n cd_dim',t=seq_length,n=num_cam)
-
-        # action_preds = torch.cat((pred_coord,rot_preds),-1)
-
-        # action_preds = einops.rearrange(action_preds,'b t n c -> b t (n c)')
-        # action_preds = self.fuse_action(action_preds)
 
         option_state = einops.rearrange(option_state,'b os (t n) c -> b t (n os c)',t=seq_length,n=num_cam) # B T N*2*hidden
         rot_preds = self.predict_rot(option_state) # B T act_dim
@@ -666,38 +421,17 @@ class ActionTransformer(TrajectoryModel):
 
     def get_action(self, states, pcs,timesteps, options=None, word_embeddings=None, **kwargs):
         assert options is not None
-        # if isinstance(self.state_dim, tuple):
-        #     if len(states.shape) != 6:  #B,T,N,H,W,C
-        #       states = states.reshape(1, -1, *self.state_dim)
-        # else:
-        #     states = states.reshape(1, -1, self.state_dim)
+
         options = options.reshape(1, -1, self.option_dim)
         timesteps = timesteps.reshape(1, -1)
         attention_mask = torch.ones(1, states.shape[1]).to(device=states.device).reshape(1, -1)
 
-        # if max_length is not None:
-        #     states = states[:, -max_length:]
-        #     options = options[:, -max_length:]
-        #     actions = actions[:, -max_length:]
-        #     timesteps = timesteps[:, -max_length:]
-
-        #     # pad all tokens to sequence length
-        #     # mask future observation
-        #     attention_mask = pad(torch.ones(1, states.shape[1]), max_length)
-        #     states = pad(states, max_length).to(dtype=torch.float32)
-        #     options = pad(options, max_length).to(dtype=torch.float32)
-        #     actions = pad(actions, max_length).to(dtype=torch.float32)
-        #     timesteps = pad(timesteps, max_length).to(dtype=torch.long)
-        # else:
-        #     raise ValueError('Should not have max_length NONE')
-        #     attention_mask = None
         print("state_embeddings shape: ",states.shape)
         print("options shape: ",options.shape)
         print("timesteps shape: ", timesteps.shape)
         print("attention_mask shape: ",attention_mask.shape)
         preds = self.forward(
             states, pcs, timesteps, options=options, attention_mask=attention_mask)
-
 
         return preds
 

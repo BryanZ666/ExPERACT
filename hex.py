@@ -33,11 +33,7 @@ class Hex(nn.Module):
     option_selector_args['codebook_dim'] = args.codebook_dim
     option_selector_args['num_cams'] = args.env.num_cams
     self.option_selector = OptionSelector(lang_dim=args.env.lang_feat_dim, **option_selector_args)
-    # self.option_selector = OptionSelector(lang_dim=args.env.lang_emb_dim, **option_selector_args)
 
-
-    # self.decision_transformer = DecisionTransformer(lang_dim=self.lm.config.dim, **decision_transformer_args)
-    # self.act_transformer = ActionTransformer(lang_dim=self.lm.config.dim, **decision_transformer_args)
     perceiver_encoder = PerceiverVoxelLangEncoder(
       depth=args.peract.transformer_depth,
       iterations=args.peract.transformer_iterations,
@@ -102,15 +98,9 @@ class Hex(nn.Module):
     )
     self.act_transformer.build(training=True, device=self.device)
 
-    # os_params = {'params': self.option_selector.parameters(), 'lr': args.os_learning_rate}
-    # act_params = {'params': self.act_transformer._q.parameters(),'lr':args.peract.lr}
     self.loss_fn = nn.CrossEntropyLoss(reduction='none')
     params = list(self.option_selector.parameters())+list(self.act_transformer._q.parameters())
 
-    # self.optimizer=torch.optim.Adam(
-    #   os_params,
-    #   lr=args.learning_rate, 
-    #   weight_decay=args.weight_decay)
     self.optimizer = Lamb(
                     params,
                     lr=args.learning_rate,
@@ -122,108 +112,7 @@ class Hex(nn.Module):
 
     self.scheduler = torch.optim.lr_scheduler.LinearLR(
       self.optimizer,start_factor=1.0,end_factor=0.5,total_iters=3000)
-    
-  def forward132(self,steps, lang_goal_emb, lang_token_embs, obs ,pcs, robot_state, actions, trans_idx, rot_idx,  timesteps, attention_mask=None,min_interval=None):
-    # obs: B, T, N, H, W, C
-    # pcs: B, T, N, H, W, C
-    # actions: B, T, act_dim
-    # timesteps: B, T
-    # print(lang_goal_emb)
-    # states = torch.cat([states,pc_obs],dim=2)
-    obs = (obs.float() / 255.0) * 2.0 - 1.0
-    state_embedding = self.encoder(obs,pcs,robot_state)
-
-    # selected_options shape: B, T, hidden
-    # selected_options, _, commitment_loss, etrp = self.option_selector(lang_token_embs, state_embedding,
-    #  timesteps=timesteps, attention_mask=attention_mask)
-    selected_options, _, commitment_loss, etrp = self.option_selector(lang_goal_emb, state_embedding,
-     timesteps=timesteps, attention_mask=attention_mask)
-    
-    q_trans_flat_list = []
-    q_rot_x_flat_list = []
-    q_rot_y_flat_list = []
-    q_rot_z_flat_list = []
-    q_grip_flat_list = []
-
-    action_trans_one_hot_flat_list = []
-    action_rot_x_one_hot_list = []
-    action_rot_y_one_hot_list = []
-    action_rot_z_one_hot_list = []
-    action_grip_one_hot_list = []
-
-    for t in range(obs.shape[1]):
-      print(t)
-      if (actions[:,t,:7]==0).all() or (pcs[:,t]==0).all():
-        continue
-      
-      ob = []
-      pc = []
-      for n in range(obs[:,t].shape[1]):
-        rgb = einops.rearrange(obs[:,t,n],'b h w c -> b c h w')
-        p_c = einops.rearrange(pcs[:,t,n],'b h w c -> b c h w')
-        ob.append([rgb,p_c])
-        pc.append(p_c)
-      proprio = robot_state[:,t]
-      t_idx = trans_idx[:,t]
-      r_idx = rot_idx[:,t]
-      action = actions[:,t,:7]
-      
-      if t == 0:
-        selected_option = selected_options[:,t]
-      else:
-        selected_option = selected_options[:,t].clone().detach()
-
-      # selected_option = None
-
-      q_trans_flat,q_rot_x_flat,q_rot_y_flat,q_rot_z_flat,q_grip_flat, \
-        action_trans_one_hot_flat,action_rot_x_one_hot,action_rot_y_one_hot,action_rot_z_one_hot,action_grip_one_hot = \
-        self.act_transformer.update(steps,ob,pc,proprio,t_idx,r_idx,action, lang_goal_emb,lang_token_embs,selected_option)
-      
-      q_trans_flat_list.append(q_trans_flat)
-      q_rot_x_flat_list.append(q_rot_x_flat)
-      q_rot_y_flat_list.append(q_rot_y_flat)
-      q_rot_z_flat_list.append(q_rot_z_flat)
-      q_grip_flat_list.append(q_grip_flat)
-
-      action_trans_one_hot_flat_list.append(action_trans_one_hot_flat)
-      action_rot_x_one_hot_list.append(action_rot_x_one_hot)
-      action_rot_y_one_hot_list.append(action_rot_y_one_hot)
-      action_rot_z_one_hot_list.append(action_rot_z_one_hot)
-      action_grip_one_hot_list.append(action_grip_one_hot)
-
-    q_trans_flat_list = torch.stack(q_trans_flat_list,dim=1)
-    q_rot_x_flat_list = torch.stack(q_rot_x_flat_list,dim=1)
-    q_rot_y_flat_list = torch.stack(q_rot_y_flat_list,dim=1)
-    q_rot_z_flat_list = torch.stack(q_rot_z_flat_list,dim=1)
-    q_grip_flat_list = torch.stack(q_grip_flat_list,dim=1)
-
-    action_trans_one_hot_flat_list = torch.stack(action_trans_one_hot_flat_list,dim=1)
-    action_rot_x_one_hot_list = torch.stack(action_rot_x_one_hot_list,dim=1)
-    action_rot_y_one_hot_list = torch.stack(action_rot_y_one_hot_list,dim=1)
-    action_rot_z_one_hot_list = torch.stack(action_rot_z_one_hot_list,dim=1)
-    action_grip_one_hot_list = torch.stack(action_grip_one_hot_list,dim=1)
-
-    loss =  self.compute_loss(q_trans_flat_list, action_trans_one_hot_flat_list)+\
-            self.compute_loss(q_rot_x_flat_list, action_rot_x_one_hot_list)+\
-            self.compute_loss(q_rot_y_flat_list, action_rot_y_one_hot_list)+\
-            self.compute_loss(q_rot_z_flat_list, action_rot_z_one_hot_list)+\
-            self.compute_loss(q_grip_flat_list, action_grip_one_hot_list)
-
-    total_loss = loss + commitment_loss
-    total_loss = total_loss.mean()
-
-    total_loss.backward()
-
-    self.optimizer.step()
-    self.optimizer.zero_grad()
-
-    # Clean up memory
-    del q_trans_flat_list, q_rot_x_flat_list, q_rot_y_flat_list, q_rot_z_flat_list, q_grip_flat_list
-    del action_trans_one_hot_flat_list, action_rot_x_one_hot_list, action_rot_y_one_hot_list, action_rot_z_one_hot_list, action_grip_one_hot_list
-
-
-    return total_loss
-  
+ 
   def compute_loss(self,pred,labels):
     pred = pred.view(-1,pred.size(-1))
     labels = labels.view(-1,labels.size(-1)).argmax(-1)
@@ -238,9 +127,6 @@ class Hex(nn.Module):
     obs = (obs.float() / 255.0) * 2.0 - 1.0
     state_embedding = self.encoder(obs,pcs,robot_state)
 
-    # selected_options shape: B, T, hidden
-    # selected_options, _, commitment_loss, etrp = self.option_selector(lang_token_embs, state_embedding,
-    #  timesteps=timesteps, attention_mask=attention_mask)
     selected_options, _, commitment_loss, etrp = self.option_selector(lang_goal_emb, state_embedding,
      timesteps=timesteps, attention_mask=attention_mask)
     
@@ -266,38 +152,23 @@ class Hex(nn.Module):
       else:
         selected_option = selected_options[:,t].clone().detach()
 
-      # selected_option = None
-
       loss = self.act_transformer.update(steps,ob,pc,proprio,t_idx,r_idx,action, lang_goal_emb,lang_token_embs,
         selected_option)
       if t == 0:
         total_loss = loss + commitment_loss.mean()
       else:
         total_loss = loss
-      # total_loss = loss
-      # total_loss = loss/obs.shape[1]
+
       total_loss.backward()
       self.optimizer.step()
       self.optimizer.zero_grad()
-      # if t == obs.shape[1]-1:
-      #   self.optimizer.step()
-      #   self.optimizer.zero_grad()
-
-        
-
-
 
     if self.scheduler is not None:
       self.scheduler.step(steps)
-    # print("Steps: %d, commitment loss: %.4f, loss: %.4f \n" %(steps,commitment_loss.item(),loss.item()))
-    # assert False
 
     return total_loss
 
-    # action_preds = self.decision_transformer(state_embedding, timesteps, options=selected_options, attention_mask=attention_mask)
-    # action_preds = self.act_transformer(state_embedding, pc_obs, timesteps, options=selected_options, attention_mask=attention_mask)
-    
-    # return action_preds,commitment_loss
+
 
   def _normalize_quat(self, x):
     return x / x.square().sum().sqrt().unsqueeze(-1)
@@ -306,12 +177,7 @@ class Hex(nn.Module):
     obs = (obs.float() / 255.0) * 2.0 - 1.0
     state_embedding = self.encoder(obs,pcs,robot_state)
 
-    # if len(timesteps)%self.eval_option_fre==0:
-    #   option, option_index = self.option_selector.get_option(word_embeddings=lang_goal_emb,
-    #                                                           states=state_embedding.to(dtype=torch.float32),
-    #                                                           timesteps=timesteps.to(dtype=torch.long), **kwargs)
-    # else:
-    #   option = options[-2]
+
     option, option_index = self.option_selector.get_option(word_embeddings=lang_goal_emb,
                                                         states=state_embedding,
                                                         timesteps=timesteps, **kwargs)
@@ -326,26 +192,15 @@ class Hex(nn.Module):
       ob.append([rgb,p_c])
       pc.append(p_c)
     proprio = robot_state[:,0]
-    # print("Eval--obs shape: ",ob.shape)
-    
-    # print("Eval--robot_state shape: ",proprio.shape)
-    # print("Eval--option shape: ",option.shape)
 
-    # option = None   #ablation
-    
-    # preds = self.decision_transformer.get_action(state_embedding, timesteps, options=option)
     preds = self.act_transformer.act(ob, pc, proprio, lang_goal_emb,lang_token_embs,option)
-    # action = preds[:, -1] #need update
-    # action = torch.mean(preds,dim=1)
+
     action =preds
 
     ignore_collisions = np.array([1.0])
     action = np.concatenate([action.squeeze(), ignore_collisions])
 
-    # action = action.squeeze().cpu().numpy()
-    # out_action = torch.cat([action[:3], self._normalize_quat(action[3:7]), action[7:]])
     out_action = action
-    # print("------output action: ",action)
 
     return out_action, option_index
 

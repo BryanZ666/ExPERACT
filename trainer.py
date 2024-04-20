@@ -84,59 +84,13 @@ class Trainer:
       assert states.shape[1] == pcs.shape[1] == actions.shape[1] == \
         timesteps.shape[1] ==dones.shape[1] ==attention_mask.shape[1] 
 
-      # action_preds,commitment_loss = self.model(steps,lang_goal_emb, lang_token_embs, \
-      #   states,pcs, rbs, actions, trans_idx, rot_idx, timesteps, attention_mask=attention_mask)
+
       loss = self.model(steps,lang_goal_emb, lang_token_embs, \
         states,pcs, rbs, actions, trans_idx, rot_idx, timesteps, attention_mask=attention_mask)
-      # act_dim = action_preds.shape[-1]
-      # num_cam = states.shape[2]
-
-      #action_target = action_target.repeat([1,num_cam,1])
-      #attention_mask = attention_mask.repeat([1,num_cam])
-      # action_preds = action_preds.reshape(-1, act_dim)
-      # action_target = action_target.reshape(-1, act_dim)
-
-      # with torch.no_grad():
-      #   dev_act = torch.sub(action_preds,action_target,alpha=1)
-      #   zero_act = torch.zeros_like(dev_act)
-      #   mseloss = nn.MSELoss()
-      #   printing_out = mseloss(dev_act,zero_act)
-      #   print(printing_out)
-      #   if torch.isnan(printing_out).all():
-      #     print(action_preds)
-      #     print("=*"*10)
-      #     print(action_target)
-      #     print("state shape:     ", states.shape)
-
-      # loss = imitation_loss(action_preds=action_preds,action_targets=action_target)+commitment_loss
-      # print(loss)
-
-      # self.optimizer.zero_grad()
-      # loss.backward()
-      # self.optimizer.step()
-      # if self.scheduler is not None:
-      #   self.scheduler.step(steps)
 
       with torch.no_grad():
         train_losses.append(loss.detach().cpu().item())
         action_losses.append(loss.detach().cpu().item())
-        # state_losses.append(state_loss.detach().cpu().item())
-        # option_losses.append(options_loss.detach().cpu().item())
-        # state_rc_losses.append(state_rc_loss.detach().cpu().item())
-        # lang_rc_losses.append(lang_rc_loss.detach().cpu().item())
-        # commitment_losses.append(commitment_loss.detach().cpu().item())
-        # entropies.append(entropy.detach().cpu().item())
-        # lang_entropies.append(lang_entropy.detach().cpu().item())
-        # mutual_info.append(entropies[-1] - lang_entropies[-1])
-      # if steps>0 and steps % self.eval_every == 0:
-      #   eval_start = time.time()
-
-      #   self.model.eval()
-      #   eval_outputs = self.evaluate(steps, render=eval_render,render_path=self.render_path,action_target=action_target)
-      #   for k, v in eval_outputs.items():
-      #     logs[f'evaluation/{k}'] = v
-      #   logs['time/evaluation'] = time.time() - eval_start
-      
 
       steps +=1      
 
@@ -148,17 +102,6 @@ class Trainer:
     logs['training/train_loss_std'] = np.std(train_losses)
 
     logs['training/action_pred_loss'] = np.mean(action_losses)
-    # logs['training/state_pred_loss'] = np.mean(state_losses)
-    # logs['training/options_pred_loss'] = np.mean(option_losses)
-    # logs['training/state_rc_loss'] = np.mean(state_rc_losses)
-    # logs['training/lang_rc_loss'] = np.mean(lang_rc_losses)
-    # logs['training/commitment_loss'] = np.mean(commitment_losses)
-    # logs['training/entropy'] = np.mean(entropies)
-    # logs['training/lang_entropy'] = np.mean(lang_entropies)
-    # logs['training/MI'] = np.mean(entropies) - np.mean(lang_entropies)
-    # logs['training/lr'] = self.optimizer.param_groups[0]['lr']  # DT lr
-    # logs['training/lm_lr'] = self.optimizer.param_groups[1]['lr']  # Language model lr
-    # logs['training/os_lr'] = self.optimizer.param_groups[2]['lr']  # option selector lr
 
     if print_logs:
       print('=' * 80)
@@ -180,10 +123,6 @@ class Trainer:
 
     words_dict = {}
 
-    # setting this to be sufficiently large
-    #max_ep_len = self.eval_episode_factor * self.train_loader.dataset.max_length
-    # max_ep_len = self.train_loader.dataset.max_length*2
-
     if render:
       if not os.path.isdir(render_path):
         os.makedirs(render_path, exist_ok=True)
@@ -198,7 +137,6 @@ class Trainer:
       task_name = task.get_name()
       count = self.num_eval_episodes
       for i in tqdm(range(1, self.num_eval_episodes+1)):
-        # task.set_variation(np.random.randint(0,task.variation_count()))
         
         episode_return, episode_length, options_list, images, words_dict,fail_sig = eval_episode(
           task, model, max_ep_len, words_dict, render, device, render_path=render_path,
@@ -219,10 +157,6 @@ class Trainer:
       succ_rate_list.append((count/self.num_eval_episodes))
     torch.cuda.empty_cache()
     viz_matrix(words_dict, 16, f"{render_path}/{iter_num}_")
-
-
-    #instr_table = wandb.Table(data=instr_wise_stats, columns=["Instruction", "Success Rate"])
-    #rephrasal_table = wandb.Table(data=rephrasal_wise_stats, columns=["Rephrasal type", "Success Rate"])
 
     metrics = {
       f'task_list': task_list,

@@ -206,34 +206,7 @@ class QAttentionPerActBCAgent(Agent):
                                                device=device).unsqueeze(0)
 
         if self._training:
-        #     # optimizer
-        #     if self._optimizer_type == 'lamb':
-        #         self._optimizer = Lamb(
-        #             self._q.parameters(),
-        #             lr=self._lr,
-        #             weight_decay=self._lambda_weight_l2,
-        #             betas=(0.9, 0.999),
-        #             adam=False,
-        #         )
-        #     elif self._optimizer_type == 'adam':
-        #         self._optimizer = torch.optim.Adam(
-        #             self._q.parameters(),
-        #             lr=self._lr,
-        #             weight_decay=self._lambda_weight_l2,
-        #         )
-        #     else:
-        #         raise Exception('Unknown optimizer type')
 
-        #     # learning rate scheduler
-        #     if self._lr_scheduler:
-        #         self._scheduler = transformers.get_cosine_with_hard_restarts_schedule_with_warmup(
-        #             self._optimizer,
-        #             num_warmup_steps=self._num_warmup_steps,
-        #             num_training_steps=self._training_iterations,
-        #             num_cycles=self._training_iterations // 10000,
-        #         )
-
-            # one-hot zero tensors
             self._action_trans_one_hot_zeros = torch.zeros((self._batch_size,
                                                             1,
                                                             self._voxel_size,
@@ -257,12 +230,7 @@ class QAttentionPerActBCAgent(Agent):
                                                            2),
                                                            dtype=int,
                                                            device=device)
-            # self._action_ignore_collisions_one_hot_zeros = torch.zeros((self._batch_size,
-            #                                                             2),
-            #                                                             dtype=int,
-            #                                                             device=device)
 
-            # print total params
             logging.info('# Q Params: %d' % sum(
                 p.numel() for name, p in self._q.named_parameters() \
                 if p.requires_grad and 'clip' not in name))
@@ -365,146 +333,9 @@ class QAttentionPerActBCAgent(Agent):
         q_collision_softmax = F.softmax(q_collision, dim=1)
         return q_collision_softmax
 
-    def update132(self, steps,obs, pcd, proprio, action_trans,action_rot_grip,action_gripper_pose, \
-          lang_goal_emb,lang_token_embs,option,prev_layer_voxel_grid = None,prev_layer_bounds = None) -> dict:
-        # action_trans = replay_sample['trans_action_indicies'][:, self._layer * 3:self._layer * 3 + 3].int()
-        # action_rot_grip = replay_sample['rot_grip_action_indicies'].int()
-        # action_gripper_pose = replay_sample['gripper_pose']
-        # action_ignore_collisions = replay_sample['ignore_collisions'].int()
-        # lang_goal_emb = replay_sample['lang_goal_emb'].float()
-        # lang_token_embs = replay_sample['lang_token_embs'].float()
-        
-        if steps%1000==0:
-          import csv
-          import os
-
-          str_list = ["action_trans","action_rot_grip","gripper_pose","obs","pcd","lang_goal_emb","lang_token_emb","robot_state"]
-          var_list = [action_trans,action_rot_grip,action_gripper_pose,obs,pcd,lang_goal_emb,lang_token_embs,proprio]
-          # str_list = ["action_trans","action_rot_grip","gripper_pose","q_trans","q_rot_grip"]
-          # var_list = [action_trans,action_rot_grip,action_gripper_pose,q_trans,q_rot_grip]
-
-
-          for i in range(len(str_list)):
-            file_path = os.path.join(os.getcwd(), "training_input",f"{str_list[i]}.csv")
-            with open(file_path, "a", newline="") as file:
-              writer = csv.writer(file)
-              writer.writerows(var_list[i])
-
-        action_trans = action_trans.int()
-        action_rot_grip = action_rot_grip.int()
-
-        device = self._device
-        bounds = self._coordinate_bounds.to(device)
-
-        # print("+++++++++++++peract inputs shapes++++++++++++++++++++")
-        # print(action_trans.shape)
-        # print(action_rot_grip.shape)
-        # print(action_gripper_pose.shape)
-        # print(lang_goal_emb)
-        # print(lang_token_embs.shape)
-        # print(option.shape)
-        # print(proprio.shape)
-        # print(prev_layer_voxel_grid)
-        # print(prev_layer_bounds)
-        # print(len(obs))
-        # print(len(pcd),pcd[0].shape)
-
-
-
-        # proprio = None
-        # if self._include_low_dim_state:
-        #     proprio = replay_sample['low_dim_state']
-
-        # obs, pcd = self._preprocess_inputs(replay_sample)
-
-        # batch size
-        bs = pcd[0].shape[0]
-
-        # SE(3) augmentation of point clouds and actions
-        if self._transform_augmentation:
-            action_trans, \
-            action_rot_grip, \
-            pcd = apply_se3_augmentation(pcd,
-                                         action_gripper_pose,
-                                         action_trans,
-                                         action_rot_grip,
-                                         bounds,
-                                         self._layer,
-                                         self._transform_augmentation_xyz,
-                                         self._transform_augmentation_rpy,
-                                         self._transform_augmentation_rot_resolution,
-                                         self._voxel_size,
-                                         self._rotation_resolution,
-                                         self._device)
-
-        # forward pass
-        q_trans, q_rot_grip, \
-        q_collision, \
-        voxel_grid = self._q(obs,
-                             proprio,
-                             pcd,
-                             lang_goal_emb,
-                             lang_token_embs,
-                             option,
-                             bounds,
-                             prev_layer_bounds,
-                             prev_layer_voxel_grid)
-
-        # argmax to choose best action
-        coords, \
-        rot_and_grip_indicies, \
-        ignore_collision_indicies = self._q.choose_highest_action(q_trans, q_rot_grip, q_collision)
-
-        q_trans_loss, q_rot_loss, q_grip_loss, q_collision_loss = 0., 0., 0., 0.
-
-        # translation one-hot
-        action_trans_one_hot = self._action_trans_one_hot_zeros.clone()
-        for b in range(bs):
-            gt_coord = action_trans[b, :].int()
-            action_trans_one_hot[b, :, gt_coord[0], gt_coord[1], gt_coord[2]] = 1
-
-        # translation loss
-        q_trans_flat = q_trans.view(bs, -1)
-        action_trans_one_hot_flat = action_trans_one_hot.view(bs, -1)
-
-        with_rot_and_grip = rot_and_grip_indicies is not None
-        if with_rot_and_grip:
-            # rotation, gripper, and collision one-hots
-            action_rot_x_one_hot = self._action_rot_x_one_hot_zeros.clone()
-            action_rot_y_one_hot = self._action_rot_y_one_hot_zeros.clone()
-            action_rot_z_one_hot = self._action_rot_z_one_hot_zeros.clone()
-            action_grip_one_hot = self._action_grip_one_hot_zeros.clone()
-            # action_ignore_collisions_one_hot = self._action_ignore_collisions_one_hot_zeros.clone()
-
-            for b in range(bs):
-                gt_rot_grip = action_rot_grip[b, :].int()
-                action_rot_x_one_hot[b, gt_rot_grip[0]] = 1
-                action_rot_y_one_hot[b, gt_rot_grip[1]] = 1
-                action_rot_z_one_hot[b, gt_rot_grip[2]] = 1
-                action_grip_one_hot[b, gt_rot_grip[3]] = 1
-
-                # gt_ignore_collisions = action_ignore_collisions[b, :].int()
-                # action_ignore_collisions_one_hot[b, gt_ignore_collisions[0]] = 1
-
-            # flatten predictions
-            q_rot_x_flat = q_rot_grip[:, 0*self._num_rotation_classes:1*self._num_rotation_classes]
-            q_rot_y_flat = q_rot_grip[:, 1*self._num_rotation_classes:2*self._num_rotation_classes]
-            q_rot_z_flat = q_rot_grip[:, 2*self._num_rotation_classes:3*self._num_rotation_classes]
-            q_grip_flat =  q_rot_grip[:, 3*self._num_rotation_classes:]
-            # q_ignore_collisions_flat = q_collision
-
-        return q_trans_flat,q_rot_x_flat,q_rot_y_flat,q_rot_z_flat,q_grip_flat,\
-          action_trans_one_hot_flat,action_rot_x_one_hot,action_rot_y_one_hot,action_rot_z_one_hot,action_grip_one_hot
-
     def update(self, steps,obs, pcd, proprio, action_trans,action_rot_grip,action_gripper_pose, \
           lang_goal_emb,lang_token_embs,option,prev_layer_voxel_grid = None,prev_layer_bounds = None) -> dict:
-        # action_trans = replay_sample['trans_action_indicies'][:, self._layer * 3:self._layer * 3 + 3].int()
-        # action_rot_grip = replay_sample['rot_grip_action_indicies'].int()
-        # action_gripper_pose = replay_sample['gripper_pose']
-        # action_ignore_collisions = replay_sample['ignore_collisions'].int()
-        # lang_goal_emb = replay_sample['lang_goal_emb'].float()
-        # lang_token_embs = replay_sample['lang_token_embs'].float()
-        
+
         if steps%3000==0:
         # if steps<120:
         
@@ -513,8 +344,6 @@ class QAttentionPerActBCAgent(Agent):
 
           str_list = ["action_trans","action_rot_grip","gripper_pose","obs","pcd","lang_goal_emb","lang_token_emb","robot_state"]
           var_list = [action_trans,action_rot_grip,action_gripper_pose,obs,pcd,lang_goal_emb,lang_token_embs,proprio]
-          # str_list = ["action_trans","action_rot_grip","gripper_pose","q_trans","q_rot_grip"]
-          # var_list = [action_trans,action_rot_grip,action_gripper_pose,q_trans,q_rot_grip]
 
 
           for i in range(len(str_list)):
@@ -529,28 +358,6 @@ class QAttentionPerActBCAgent(Agent):
         device = self._device
         bounds = self._coordinate_bounds.to(device)
 
-        # print("+++++++++++++peract inputs shapes++++++++++++++++++++")
-        # print(action_trans.shape)
-        # print(action_rot_grip.shape)
-        # print(action_gripper_pose.shape)
-        # print(lang_goal_emb)
-        # print(lang_token_embs.shape)
-        # print(option.shape)
-        # print(proprio.shape)
-        # print(prev_layer_voxel_grid)
-        # print(prev_layer_bounds)
-        # print(len(obs))
-        # print(len(pcd),pcd[0].shape)
-
-
-
-        # proprio = None
-        # if self._include_low_dim_state:
-        #     proprio = replay_sample['low_dim_state']
-
-        # obs, pcd = self._preprocess_inputs(replay_sample)
-
-        # batch size
         bs = pcd[0].shape[0]
 
         # SE(3) augmentation of point clouds and actions
@@ -608,7 +415,6 @@ class QAttentionPerActBCAgent(Agent):
             action_rot_y_one_hot = self._action_rot_y_one_hot_zeros.clone()
             action_rot_z_one_hot = self._action_rot_z_one_hot_zeros.clone()
             action_grip_one_hot = self._action_grip_one_hot_zeros.clone()
-            # action_ignore_collisions_one_hot = self._action_ignore_collisions_one_hot_zeros.clone()
 
             for b in range(bs):
                 gt_rot_grip = action_rot_grip[b, :].int()
@@ -617,15 +423,11 @@ class QAttentionPerActBCAgent(Agent):
                 action_rot_z_one_hot[b, gt_rot_grip[2]] = 1
                 action_grip_one_hot[b, gt_rot_grip[3]] = 1
 
-                # gt_ignore_collisions = action_ignore_collisions[b, :].int()
-                # action_ignore_collisions_one_hot[b, gt_ignore_collisions[0]] = 1
-
             # flatten predictions
             q_rot_x_flat = q_rot_grip[:, 0*self._num_rotation_classes:1*self._num_rotation_classes]
             q_rot_y_flat = q_rot_grip[:, 1*self._num_rotation_classes:2*self._num_rotation_classes]
             q_rot_z_flat = q_rot_grip[:, 2*self._num_rotation_classes:3*self._num_rotation_classes]
             q_grip_flat =  q_rot_grip[:, 3*self._num_rotation_classes:]
-            # q_ignore_collisions_flat = q_collision
 
             # rotation loss
             q_rot_loss += self._celoss(q_rot_x_flat, action_rot_x_one_hot)
@@ -638,21 +440,12 @@ class QAttentionPerActBCAgent(Agent):
             # gripper loss
             q_grip_loss = self._celoss(q_grip_flat, action_grip_one_hot)
 
-            # collision loss
-            # q_collision_loss += self._celoss(q_ignore_collisions_flat, action_ignore_collisions_one_hot)
-
-        # combined_losses = (q_trans_loss * self._trans_loss_weight) + \
-        #                   (q_rot_loss * self._rot_loss_weight) + \
-        #                   (q_grip_loss * self._grip_loss_weight) + \
-        #                   (q_collision_loss * self._collision_loss_weight)
         combined_losses = (q_trans_loss * self._trans_loss_weight) + \
                           (q_rot_loss * self._rot_loss_weight) + \
                           (q_grip_loss * self._grip_loss_weight)
         total_loss = combined_losses.mean()
-        # print("Losses: %f, %f, %f" %( q_trans_loss, q_rot_loss, q_grip_loss))
 
         if steps%3000==0:
-        # if steps<120:
           
           x_argmax = np.argmax(q_rot_x_flat.detach().cpu().numpy(),axis=1)
           y_argmax = np.argmax(q_rot_y_flat.detach().cpu().numpy(),axis=1)
@@ -666,8 +459,7 @@ class QAttentionPerActBCAgent(Agent):
 
           str_list = ["AUG_action_trans","AUG_action_rot_grip","q_trans","q_rot_grip"]
           var_list = [action_trans,action_rot_grip,compare_trans,rot_grip_argmax]
-          # str_list = ["action_trans","action_rot_grip","gripper_pose","q_trans","q_rot_grip"]
-          # var_list = [action_trans,action_rot_grip,action_gripper_pose,q_trans,q_rot_grip]
+
 
 
           for i in range(len(str_list)):
@@ -677,50 +469,10 @@ class QAttentionPerActBCAgent(Agent):
               writer.writerows(var_list[i])
           
         print("Steps: %d, loss: %.4f (%4f, %4f, %4f)\n" %(steps,total_loss.item(),q_trans_loss, q_rot_loss, q_grip_loss))
-        # assert False
 
         return total_loss
 
-        # self._optimizer.zero_grad()
-        # total_loss.backward()
-        # self._optimizer.step()
-
-        # self._summaries = {
-        #     'losses/total_loss': total_loss,
-        #     'losses/trans_loss': q_trans_loss.mean(),
-        #     'losses/rot_loss': q_rot_loss.mean() if with_rot_and_grip else 0.,
-        #     'losses/grip_loss': q_grip_loss.mean() if with_rot_and_grip else 0.,
-        #     # 'losses/collision_loss': q_collision_loss.mean() if with_rot_and_grip else 0.,
-        # }
-
-        # if self._lr_scheduler:
-        #     self._scheduler.step()
-        #     self._summaries['learning_rate'] = self._scheduler.get_last_lr()[0]
-
-        # self._vis_voxel_grid = voxel_grid[0]
-        # self._vis_translation_qvalue = self._softmax_q_trans(q_trans[0])
-        # self._vis_max_coordinate = coords[0]
-        # self._vis_gt_coordinate = action_trans[0]
-
-        # # Note: PerAct doesn't use multi-layer voxel grids like C2FARM
-        # # stack prev_layer_voxel_grid(s) from previous layers into a list
-        # if prev_layer_voxel_grid is None:
-        #     prev_layer_voxel_grid = [voxel_grid]
-        # else:
-        #     prev_layer_voxel_grid = prev_layer_voxel_grid + [voxel_grid]
-
-        # # stack prev_layer_bound(s) from previous layers into a list
-        # if prev_layer_bounds is None:
-        #     prev_layer_bounds = [self._coordinate_bounds.repeat(bs, 1)]
-        # else:
-        #     prev_layer_bounds = prev_layer_bounds + [bounds]
-
-        # return {
-        #     'total_loss': total_loss,
-        #     'prev_layer_voxel_grid': prev_layer_voxel_grid,
-        #     'prev_layer_bounds': prev_layer_bounds,
-        # }
-
+        
     def act(self, obs, pcd, proprio, lang_goal_emb,lang_token_embs,\
           option,prev_layer_voxel_grid = None,prev_layer_bounds = None):
         deterministic = True
@@ -769,10 +521,6 @@ class QAttentionPerActBCAgent(Agent):
         rot_and_grip_indicies, \
         ignore_collisions = self._q.choose_highest_action(q_trans, q_rot_grip, q_ignore_collisions)
 
-        # print("Eval--coords shape: ",coords.shape)
-        # print("Eval--rot_and_grip_indicies shape: ",rot_and_grip_indicies.shape)
-        # print("Eval--ignore_collisions shape: ",ignore_collisions.shape)
-
         rot_grip_action = rot_and_grip_indicies.detach().cpu().numpy()[0] if q_rot_grip is not None else None
         ignore_collisions_action = ignore_collisions.int() if ignore_collisions is not None else None
 
@@ -798,8 +546,6 @@ class QAttentionPerActBCAgent(Agent):
 
         out_rot_grip = utils.discrete_euler_to_quaternion(rot_grip_action[:-1],self._rotation_resolution)
         
-        # out_action = torch.cat([attention_coordinate,out_rot_grip,ignore_collisions_action],1)
-
         attention_coordinate = attention_coordinate.detach().cpu().numpy().squeeze()
         ignore_collisions_action = ignore_collisions_action.cpu().numpy().squeeze(0)
         out_action = np.concatenate([attention_coordinate,out_rot_grip,[rot_grip_action[-1]]])
