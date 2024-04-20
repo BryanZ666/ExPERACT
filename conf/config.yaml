@@ -41,12 +41,7 @@ savedir: 'checkpoints'
 savepath: ## to be filled in code
 
 method: 'hex'
-use_iq: False ## use IQ-Learn objective instead of BC
-
-# learning_rate: 5e-4
-# lm_learning_rate: 5e-4
-# weight_decay: 1e-6
-# os_learning_rate: 5e-4
+use_iq: False ## use IQ-Learn objective instead of BC, False in this paper
 
 learning_rate: 1e-3
 lm_learning_rate: 1e-3
